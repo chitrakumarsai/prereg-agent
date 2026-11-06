@@ -17,6 +17,7 @@ dependencies = [
 [dependency-groups]
 dev = [
     "httpx>=0.28.1",
+    "praxis-agents==0.1.1",
     "pytest>=9.2.0",
 ]
 

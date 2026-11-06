@@ -25,10 +25,10 @@ model never touches, against a plan that was frozen before execution.
 | Profile | sandbox | A trusted script reads the CSV, summarises columns and flags cells that look like instructions |
 | Pre-register | control plane + Vultr Inference | The model picks one test, outcome, predictor, alpha and decision rule; the plan is validated against the data, then **frozen and SHA-256 fingerprinted** |
 | Execute | sandbox | The model writes the analysis script; it runs sealed; on failure the error goes back to the model (up to 3 attempts) |
-| Verify | sandbox | A fixed recomputation of the pre-registered test; five checks compare the agent's result with it |
+| Verify | sandbox | A fixed recomputation of the pre-registered test; up to five checks compare the agent's result with it |
 | Explain | Vultr Inference | A plain-English answer written from the **verified** numbers only |
 
-The receipt records the frozen plan and its fingerprint, the code, the verified numbers, all five checks, the pinned
+The receipt records the frozen plan and its fingerprint, the code, the verified numbers, every verification check, the pinned
 library versions and the sandbox policy.
 
 ## Containment
@@ -51,7 +51,7 @@ docker run --rm --runtime runsc --network none \
 | No network | `--network none`: no interface, no DNS |
 | No secrets | The inference key lives only in the control plane; the process starts under `env -i` with three harmless variables |
 | Resource caps | 512 MB (no swap), 1 CPU, 128 processes, 64 MB `/tmp`; at 30 s SIGTERM, SIGKILL 2 s later |
-| Disk | In production `/out` lives on a 192 MB tmpfs, so a run cannot fill the VM's disk |
+| Disk | In production each run's `/out` is its own 32 MB tmpfs mount, so a run can fill neither the VM's disk nor another run's space; leftover run folders are swept at startup |
 | Host-side reading | Output lines are read in bounded chunks and capped; files in `/out` are opened with `O_NOFOLLOW` and must be regular files, so a planted symlink cannot make the host read its own files |
 | Read-only inputs | Data and code are mounted read-only; the root filesystem is read-only; only `/out` is writable |
 | Least privilege | uid 1000, every capability dropped, `no-new-privileges` |
@@ -128,6 +128,13 @@ site, writes the key to a root-only env file, starts the service and opens only 
 - Four tests are supported (Welch's t, Mann-Whitney U, chi-square, single-predictor OLS), each with an exact
   canonical call so that verification is meaningful.
 - Run state is in memory; a restart drops in-flight runs.
+
+## Engineering rules (praxis)
+
+The containment and secret-handling rules live as Markdown in `.praxis/rules/` and are compiled into `AGENTS.md`
+and `CLAUDE.md` with [praxis-agents](https://pypi.org/project/praxis-agents/), so every coding agent working on
+this repo follows them. `uv run praxis verify` enforces them on every change: for example, it fails if
+`prereg/runner.py` ever gains a network, an `-e` variable or an added capability, and re-runs the sandbox tests.
 
 ## Licence
 

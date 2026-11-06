@@ -148,3 +148,19 @@ def test_hostile_result_json_is_reported_not_raised(tmp_path, payload):
     (tmp_path / "result.json").write_text(payload)
     result, error = _read_result(tmp_path)
     assert result is None and error
+
+
+def test_startup_sweep_removes_leftover_run_folders(tmp_path, monkeypatch):
+    from prereg.runner import sweep_runs_dir
+    monkeypatch.setattr(config, "RUNS_DIR", tmp_path)
+    (tmp_path / "prereg-abc" / "out").mkdir(parents=True)
+    (tmp_path / "unrelated").mkdir()
+    assert sweep_runs_dir() == 1
+    assert not (tmp_path / "prereg-abc").exists() and (tmp_path / "unrelated").exists()
+
+
+def test_artifact_listing_stops_early(tmp_path):
+    from prereg.runner import _read_artifacts
+    for i in range(500):
+        (tmp_path / f"{i}.png").write_bytes(b"\x89PNG")
+    assert len(_read_artifacts(tmp_path)) == config.MAX_ARTIFACTS

@@ -57,7 +57,7 @@ export function DatasetPicker({ datasets, source, isDisabled, onPick, onError }:
         onDragOver={(e) => e.preventDefault()}
         onDrop={(e) => {
           e.preventDefault();
-          handleFile(e.dataTransfer.files[0]);
+          if (!isDisabled) handleFile(e.dataTransfer.files[0]);
         }}
         className={`flex items-center justify-between gap-3 rounded-md border border-dashed p-4 ${source?.kind === "file" ? "border-accent bg-accent-soft/40" : "border-line"}`}
       >

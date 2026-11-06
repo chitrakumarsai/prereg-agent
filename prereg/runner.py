@@ -61,6 +61,13 @@ def _prepare(run_dir: Path, csv_path: Path | None, files: dict[str, bytes]) -> t
     for d in (data_dir, code_dir, out_dir):
         d.mkdir(parents=True)
         d.chmod(0o755)
+    if config.SCRATCH_TMPFS:
+        # Production: a private, size-capped mount per run, so one run cannot starve another.
+        subprocess.run(
+            ["mount", "-t", "tmpfs", "-o", f"size={config.SCRATCH_SIZE},mode=0777,nosuid,nodev,noexec", "tmpfs",
+             str(out_dir)],
+            check=True, capture_output=True, timeout=10,
+        )
     out_dir.chmod(0o777)  # the sandbox user (uid 1000) must be able to write here
     if csv_path is not None:
         target = data_dir / "input.csv"
@@ -121,11 +128,32 @@ def _read_result(out_dir: Path) -> tuple[dict | None, str | None]:
 
 def _read_artifacts(out_dir: Path) -> dict[str, str]:
     artifacts: dict[str, str] = {}
-    for path in sorted(out_dir.glob("*.png"))[: config.MAX_ARTIFACTS]:
-        raw = _read_regular_file(path, config.MAX_ARTIFACT_BYTES)
-        if raw is not None:
-            artifacts[path.name] = base64.b64encode(raw).decode()
+    with os.scandir(out_dir) as entries:  # stops early: a run may leave thousands of files
+        for entry in entries:
+            if len(artifacts) >= config.MAX_ARTIFACTS:
+                break
+            if entry.name.endswith(".png"):
+                raw = _read_regular_file(Path(entry.path), config.MAX_ARTIFACT_BYTES)
+                if raw is not None:
+                    artifacts[entry.name] = base64.b64encode(raw).decode()
     return artifacts
+
+
+def _destroy(run_dir: Path) -> None:
+    out_dir = run_dir / "out"
+    if config.SCRATCH_TMPFS and os.path.ismount(out_dir):
+        subprocess.run(["umount", "-l", str(out_dir)], capture_output=True, check=False, timeout=10)
+    shutil.rmtree(run_dir, ignore_errors=True)
+
+
+def sweep_runs_dir() -> int:
+    """Remove run folders left behind by a crash or restart. Called once at startup."""
+    if not config.RUNS_DIR.is_dir():
+        return 0
+    leftovers = [p for p in config.RUNS_DIR.glob("prereg-*") if p.is_dir()]
+    for path in leftovers:
+        _destroy(path)
+    return len(leftovers)
 
 
 def _classify(exit_code: int, duration_s: float, timeout_s: int) -> str:
@@ -197,4 +225,4 @@ def _run(
             artifacts=_read_artifacts(out_dir),
         )
     finally:
-        shutil.rmtree(run_dir, ignore_errors=True)
+        _destroy(run_dir)

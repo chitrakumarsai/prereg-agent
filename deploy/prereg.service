@@ -8,6 +8,8 @@ WorkingDirectory=/opt/prereg
 # Holds VULTR_INFERENCE_KEY only; mode 600, root-owned. Never mounted into a sandbox.
 EnvironmentFile=/etc/prereg.env
 Environment=PREREG_RUNS_DIR=/var/lib/prereg/runs
+# Each run's /out gets its own 32 MB tmpfs (needs root, which this unit runs as).
+Environment=PREREG_SCRATCH_TMPFS=1
 ExecStart=/usr/local/bin/uv run --frozen --no-dev uvicorn prereg.app:app --host 127.0.0.1 --port 8000 --workers 1
 Restart=on-failure
 RestartSec=3

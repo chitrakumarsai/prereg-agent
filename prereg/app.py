@@ -16,6 +16,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from prereg import agent, config
+from prereg.runner import sweep_runs_dir
 from prereg.runs import QueueFull, RateLimiter, Run, RunStore, StreamCounter
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -25,6 +26,8 @@ app = FastAPI(title="Prereg", docs_url="/api/docs", openapi_url="/api/openapi.js
 if cors := os.environ.get("PREREG_CORS_ORIGINS"):
     app.add_middleware(CORSMiddleware, allow_origins=cors.split(","), allow_methods=["GET", "POST"], allow_headers=["*"])
 store = RunStore()
+if swept := sweep_runs_dir():
+    logging.getLogger(__name__).warning("removed %d run folders left by a previous process", swept)
 limiter = RateLimiter(config.RATE_LIMIT_RUNS, config.RATE_LIMIT_WINDOW_S)
 DATASETS: list[dict] = json.loads((config.DEMO_DIR / "datasets.json").read_text())
 DATASET_IDS = {d["id"] for d in DATASETS}

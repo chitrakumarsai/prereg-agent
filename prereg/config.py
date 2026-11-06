@@ -6,6 +6,9 @@ from pathlib import Path
 SANDBOX_IMAGE = os.environ.get("PREREG_SANDBOX_IMAGE", "prereg-sandbox:1")
 SANDBOX_RUNTIME = os.environ.get("PREREG_SANDBOX_RUNTIME", "runsc")
 RUNS_DIR = Path(os.environ.get("PREREG_RUNS_DIR", "/tmp/prereg-runs"))
+# Linux + root only (production): mount a private tmpfs of SCRATCH_SIZE on each run's /out.
+SCRATCH_TMPFS = os.environ.get("PREREG_SCRATCH_TMPFS") == "1"
+SCRATCH_SIZE = "32m"
 
 RUN_TIMEOUT_S = int(os.environ.get("PREREG_RUN_TIMEOUT_S", "30"))
 MEMORY_LIMIT = "512m"

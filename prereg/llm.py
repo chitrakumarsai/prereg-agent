@@ -36,7 +36,7 @@ def chat(messages: list[dict], *, max_tokens: int = 3000) -> tuple[str, str]:
             resp = _client().chat.completions.create(
                 model=model, messages=messages, temperature=0.1, max_tokens=max_tokens
             )
-            text = (resp.choices[0].message.content or "").strip()
+            text = (resp.choices[0].message.content or "").strip() if resp.choices else ""
             if text:
                 return text, model
             last_error = LLMError(f"{model} returned an empty response")
