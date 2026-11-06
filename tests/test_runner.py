@@ -1,3 +1,4 @@
+import pytest
 import time
 from pathlib import Path
 
@@ -139,3 +140,11 @@ def test_fifo_in_out_does_not_hang_the_host(demo_csv):
     run = run_in_sandbox(demo_csv, {"a.py": code}, "a.py")
     assert time.monotonic() - started < 15
     assert run.result is None and run.artifacts == {}
+
+
+@pytest.mark.parametrize("payload", ["9" * 5000, "[" * 100_000 + "]" * 100_000])
+def test_hostile_result_json_is_reported_not_raised(tmp_path, payload):
+    from prereg.runner import _read_result
+    (tmp_path / "result.json").write_text(payload)
+    result, error = _read_result(tmp_path)
+    assert result is None and error

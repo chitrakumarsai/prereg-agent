@@ -101,3 +101,10 @@ def test_single_value_column_is_rejected(profile):
     one_value = {**profile, "columns": [*profile["columns"], {"name": "flat", "kind": "numeric", "unique": 1}]}
     problems = validate_plan(_plan(test="ols", outcome="value", predictor="flat"), one_value)
     assert any("fewer than 2 distinct values" in p for p in problems)
+
+
+def test_huge_integer_fails_a_check_instead_of_crashing():
+    claimed = {"test": "welch_t", "statistic": 10**400, "p_value": 0.013, "decision": "reject"}
+    verification = compare(_plan(), claimed, TRUTH)
+    assert not verification.passed
+    assert "Result is complete" in {c.name for c in verification.checks if not c.passed}

@@ -112,8 +112,8 @@ def _read_result(out_dir: Path) -> tuple[dict | None, str | None]:
         return None, "result.json must be a regular file under 1 MB (symlinks are refused)"
     try:
         data = json.loads(raw.decode())
-    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
-        return None, f"result.json is not valid JSON: {exc}"
+    except (ValueError, RecursionError) as exc:  # ValueError covers JSONDecodeError, Unicode and huge-int errors
+        return None, f"result.json is not valid JSON: {str(exc)[:200]}"
     if not isinstance(data, dict):
         return None, "result.json must contain a JSON object"
     return data, None
@@ -176,9 +176,13 @@ def _run(
         except subprocess.TimeoutExpired:
             log.warning("sandbox %s ignored its timeout; force-removing", name)
             hung = True
-            subprocess.run(["docker", "rm", "-f", name], capture_output=True, check=False, timeout=30)
-            proc.kill()
-            exit_code = proc.wait()
+            try:
+                subprocess.run(["docker", "rm", "-f", name], capture_output=True, check=False, timeout=30)
+            except subprocess.TimeoutExpired:
+                log.error("docker rm -f %s timed out; dockerd may be stuck", name)
+            finally:
+                proc.kill()
+                exit_code = proc.wait()
         pump.join(timeout=5)
         duration = time.monotonic() - started
         result, result_error = _read_result(out_dir)

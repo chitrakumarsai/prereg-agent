@@ -48,9 +48,13 @@ def _close(a: float, b: float) -> bool:
 
 def _number(result: dict, key: str) -> float | None:
     value = result.get(key)
-    if isinstance(value, bool) or not isinstance(value, int | float) or not math.isfinite(value):
+    if isinstance(value, bool) or not isinstance(value, int | float):
         return None
-    return float(value)
+    try:
+        number = float(value)
+    except OverflowError:  # an int too large for a float
+        return None
+    return number if math.isfinite(number) else None
 
 
 def _statistic_matches(test: str, claimed: float, truth: dict) -> bool:

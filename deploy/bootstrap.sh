@@ -43,7 +43,8 @@ mkdir -p /etc/systemd/system/caddy.service.d
 printf '[Service]\nEnvironmentFile=/etc/default/caddy-prereg\n' > /etc/systemd/system/caddy.service.d/prereg.conf
 
 systemctl daemon-reload
-systemctl enable --now prereg
+systemctl enable prereg
+systemctl restart prereg  # restart, not just start, so re-running the script deploys new code
 systemctl restart caddy
 
 ufw allow OpenSSH >/dev/null && ufw allow 80,443/tcp >/dev/null && ufw --force enable >/dev/null
