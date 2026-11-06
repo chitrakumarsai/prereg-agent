@@ -7,7 +7,6 @@
 		X-Frame-Options "DENY"
 		Referrer-Policy "strict-origin-when-cross-origin"
 		Permissions-Policy "camera=(), microphone=(), geolocation=()"
-		Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; object-src 'none'"
 	}
 
 	handle /api/* {
@@ -21,6 +20,8 @@
 	}
 
 	handle {
+		# The site's CSP. /api/docs (Swagger UI) loads its assets from cdn.jsdelivr.net, so it is not covered here.
+		header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; object-src 'none'"
 		encode zstd gzip  # static files only: compressing /api would buffer the live event streams
 		root * /opt/prereg/web/out
 		try_files {path} {path}.html /index.html

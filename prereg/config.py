@@ -20,8 +20,8 @@ SANDBOX_UID = "1000:1000"
 SANDBOX_ENV = ("PATH=/usr/local/bin:/usr/bin:/bin", "HOME=/tmp", "MPLCONFIGDIR=/tmp/mpl")
 
 MAX_LOG_BYTES = 64_000
-MAX_RESULT_BYTES = 1_000_000
-MAX_ARTIFACT_BYTES = 2_000_000
+MAX_RESULT_BYTES = 256_000
+MAX_ARTIFACT_BYTES = 1_000_000
 MAX_ARTIFACTS = 3
 
 INFERENCE_BASE_URL = "https://api.vultrinference.com/v1"
@@ -41,5 +41,7 @@ RUN_RETENTION_S = 3600
 MAX_QUEUED_RUNS = 8  # unfinished runs (thinking, queued or in a sandbox), across all clients
 MAX_LIVE_STREAMS = 24  # concurrent SSE viewers; streams poll memory and hold no threads
 MAX_RETAINED_RUNS = 100  # finished runs kept for replay, oldest dropped first
+MAX_RUNS_PER_CLIENT = 2  # unfinished runs one address may hold, so nobody can fill the queue
+MAX_STREAMS_PER_CLIENT = 4
 
 DEMO_DIR = Path(__file__).resolve().parent.parent / "demo"

@@ -56,7 +56,7 @@ docker run --rm --runtime runsc --network none \
 | Read-only inputs | Data and code are mounted read-only; the root filesystem is read-only; only `/out` is writable |
 | Least privilege | uid 1000, every capability dropped, `no-new-privileges` |
 | Lifecycle | `--rm`, and the run folder is deleted in a `finally` block, after every step |
-| Host protection | At most 2 sandbox containers at once and 8 unfinished runs overall, 12 runs per address per 10 minutes, 24 live streams (they poll memory and hold no threads), 100 finished runs kept, 6 MB request cap at Caddy and 5 MB uploads, 20 KB console code |
+| Host protection | At most 2 sandbox containers at once, 8 unfinished runs overall and 2 per address, 12 runs per address per 10 minutes, 24 live streams, 4 per address (they poll memory and hold no threads), 100 finished runs kept, 6 MB request cap at Caddy and 5 MB uploads, 20 KB console code |
 
 **See it yourself:** the **Try to break the sandbox** console runs your Python in the same sandbox, with presets for
 secret theft, reading host files, tampering with data, an infinite loop, a memory bomb and a fork bomb.

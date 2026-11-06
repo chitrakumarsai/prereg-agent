@@ -64,7 +64,7 @@ def _prepare(run_dir: Path, csv_path: Path | None, files: dict[str, bytes]) -> t
     if config.SCRATCH_TMPFS:
         # Production: a private, size-capped mount per run, so one run cannot starve another.
         subprocess.run(
-            ["mount", "-t", "tmpfs", "-o", f"size={config.SCRATCH_SIZE},mode=0777,nosuid,nodev,noexec", "tmpfs",
+            ["mount", "-t", "tmpfs", "-o", f"size={config.SCRATCH_SIZE},nr_inodes=4096,mode=0777,nosuid,nodev,noexec", "tmpfs",
              str(out_dir)],
             check=True, capture_output=True, timeout=10,
         )
@@ -116,7 +116,7 @@ def _read_result(out_dir: Path) -> tuple[dict | None, str | None]:
         return None, "the script did not write /out/result.json"
     raw = _read_regular_file(path, config.MAX_RESULT_BYTES)
     if raw is None:
-        return None, "result.json must be a regular file under 1 MB (symlinks are refused)"
+        return None, "result.json must be a regular file under 256 KB (symlinks are refused)"
     try:
         data = json.loads(raw.decode())
     except (ValueError, RecursionError) as exc:  # ValueError covers JSONDecodeError, Unicode and huge-int errors
@@ -142,7 +142,12 @@ def _read_artifacts(out_dir: Path) -> dict[str, str]:
 def _destroy(run_dir: Path) -> None:
     out_dir = run_dir / "out"
     if config.SCRATCH_TMPFS and os.path.ismount(out_dir):
-        subprocess.run(["umount", "-l", str(out_dir)], capture_output=True, check=False, timeout=10)
+        try:
+            done = subprocess.run(["umount", "-l", str(out_dir)], capture_output=True, text=True, timeout=10)
+            if done.returncode != 0:
+                log.error("could not unmount %s: %s", out_dir, done.stderr.strip())
+        except subprocess.TimeoutExpired:
+            log.error("unmounting %s timed out", out_dir)
     shutil.rmtree(run_dir, ignore_errors=True)
 
 
@@ -153,7 +158,10 @@ def sweep_runs_dir() -> int:
     leftovers = [p for p in config.RUNS_DIR.glob("prereg-*") if p.is_dir()]
     for path in leftovers:
         _destroy(path)
-    return len(leftovers)
+    uploads = list(config.RUNS_DIR.glob("upload-*.csv"))
+    for path in uploads:
+        path.unlink(missing_ok=True)
+    return len(leftovers) + len(uploads)
 
 
 def _classify(exit_code: int, duration_s: float, timeout_s: int) -> str:

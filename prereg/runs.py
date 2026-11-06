@@ -30,6 +30,7 @@ def json_safe(value: Any) -> Any:
 class Run:
     id: str
     kind: str
+    client: str = ""
     created: float = field(default_factory=time.time)
     events: list[dict] = field(default_factory=list)
     done: bool = False
@@ -54,41 +55,58 @@ class QueueFull(RuntimeError):
     """Too many runs are already waiting for or holding a sandbox slot."""
 
 
-class StreamCounter:
-    """Counts live SSE streams against a cap; checking and counting happen in one step."""
+class ClientBusy(RuntimeError):
+    """This client already has its maximum number of unfinished runs."""
 
-    def __init__(self, limit: int) -> None:
+
+class StreamCounter:
+    """Counts live SSE streams against a global and a per-client cap; check and count are one step."""
+
+    def __init__(self, limit: int, per_client: int) -> None:
         self.active = 0
-        self._limit = limit
+        self._limit, self._per_client = limit, per_client
+        self._by_client: dict[str, int] = {}
         self._lock = threading.Lock()
 
-    def try_enter(self) -> bool:
+    def try_enter(self, client: str = "") -> bool:
         with self._lock:
-            if self.active >= self._limit:
+            mine = self._by_client.get(client, 0)
+            if self.active >= self._limit or mine >= self._per_client:
                 return False
             self.active += 1
+            self._by_client[client] = mine + 1
             return True
 
-    def exit(self) -> None:
+    def exit(self, client: str = "") -> None:
         with self._lock:
             self.active -= 1
+            remaining = self._by_client.get(client, 1) - 1
+            if remaining > 0:
+                self._by_client[client] = remaining
+            else:
+                self._by_client.pop(client, None)
 
 
 class RunStore:
-    def __init__(self, max_pending: int = config.MAX_QUEUED_RUNS) -> None:
+    def __init__(
+        self, max_pending: int = config.MAX_QUEUED_RUNS, per_client: int = config.MAX_RUNS_PER_CLIENT
+    ) -> None:
         self._runs: dict[str, Run] = {}
         self._lock = threading.Lock()
-        self._max_pending = max_pending
+        self._max_pending, self._per_client = max_pending, per_client
 
     def get(self, run_id: str) -> Run | None:
         with self._lock:
             return self._runs.get(run_id)
 
-    def start(self, kind: str, work: Callable[[Run], None]) -> Run:
-        run = Run(id=uuid.uuid4().hex[:16], kind=kind)
+    def start(self, kind: str, work: Callable[[Run], None], client: str = "") -> Run:
+        run = Run(id=uuid.uuid4().hex[:16], kind=kind, client=client)
         with self._lock:
             self._prune()
-            if sum(not r.done for r in self._runs.values()) >= self._max_pending:
+            unfinished = [r for r in self._runs.values() if not r.done]
+            if sum(r.client == client for r in unfinished) >= self._per_client:
+                raise ClientBusy
+            if len(unfinished) >= self._max_pending:
                 raise QueueFull
             self._runs[run.id] = run
         threading.Thread(target=self._execute, args=(run, work), daemon=True, name=f"run-{run.id}").start()

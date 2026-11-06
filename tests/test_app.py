@@ -89,8 +89,29 @@ def test_nan_in_events_reaches_the_browser_as_valid_json():
 
 def test_stream_counter_is_atomic_and_capped():
     from prereg.runs import StreamCounter
-    counter = StreamCounter(limit=2)
+    counter = StreamCounter(limit=2, per_client=5)
     assert counter.try_enter() and counter.try_enter()
     assert not counter.try_enter()
     counter.exit()
     assert counter.try_enter()
+
+
+def test_one_client_cannot_fill_the_queue():
+    import threading
+    from prereg.runs import ClientBusy
+    gate = threading.Event()
+    store = RunStore(max_pending=8, per_client=1)
+    store.start("x", lambda run: gate.wait(5), client="a")
+    with pytest.raises(ClientBusy):
+        store.start("x", lambda run: None, client="a")
+    store.start("x", lambda run: None, client="b")  # someone else still gets in
+    gate.set()
+
+
+def test_stream_cap_is_per_client_too():
+    from prereg.runs import StreamCounter
+    counter = StreamCounter(limit=10, per_client=1)
+    assert counter.try_enter("a") and not counter.try_enter("a")
+    assert counter.try_enter("b")
+    counter.exit("a")
+    assert counter.try_enter("a")

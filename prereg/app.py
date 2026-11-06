@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 
 from prereg import agent, config
 from prereg.runner import sweep_runs_dir
-from prereg.runs import QueueFull, RateLimiter, Run, RunStore, StreamCounter
+from prereg.runs import ClientBusy, QueueFull, RateLimiter, Run, RunStore, StreamCounter
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
@@ -33,7 +33,7 @@ DATASETS: list[dict] = json.loads((config.DEMO_DIR / "datasets.json").read_text(
 DATASET_IDS = {d["id"] for d in DATASETS}
 SSE_POLL_S = 0.25
 SSE_KEEPALIVE_S = 15
-streams = StreamCounter(config.MAX_LIVE_STREAMS)
+streams = StreamCounter(config.MAX_LIVE_STREAMS, config.MAX_STREAMS_PER_CLIENT)
 
 
 class ConsoleRequest(BaseModel):
@@ -59,9 +59,11 @@ def _check_rate(request: Request) -> None:
         raise HTTPException(429, "Too many runs from your address. Try again in a few minutes.")
 
 
-def _start(kind: str, work) -> dict:
+def _start(kind: str, work, request: Request) -> dict:
     try:
-        return {"run_id": store.start(kind, work).id}
+        return {"run_id": store.start(kind, work, _client(request)).id}
+    except ClientBusy:
+        raise HTTPException(429, "You already have runs in progress. Wait for one to finish.") from None
     except QueueFull:
         raise HTTPException(503, "The sandbox queue is full. Try again in a minute.") from None
 
@@ -75,7 +77,8 @@ def _demo_path(dataset: str) -> Path:
 async def _save_upload(upload: UploadFile) -> Path:
     if not (upload.filename or "").lower().endswith(".csv"):
         raise HTTPException(400, "Please upload a .csv file")
-    fd, name = tempfile.mkstemp(suffix=".csv", prefix="upload-")
+    config.RUNS_DIR.mkdir(parents=True, exist_ok=True)  # swept at startup if a crash strands it
+    fd, name = tempfile.mkstemp(suffix=".csv", prefix="upload-", dir=config.RUNS_DIR)
     tmp = Path(name)
     size = 0
     try:
@@ -135,7 +138,7 @@ async def create_run(
                 upload.unlink(missing_ok=True)
 
     try:
-        return _start("analysis", work)
+        return _start("analysis", work, request)
     except HTTPException:
         if upload is not None:
             upload.unlink(missing_ok=True)
@@ -146,7 +149,7 @@ async def create_run(
 def create_console_run(request: Request, body: ConsoleRequest) -> dict:
     _check_rate(request)
     csv_path = _demo_path(body.dataset) if body.dataset else None
-    return _start("console", lambda run: agent.run_console(body.code, run.emit, csv_path))
+    return _start("console", lambda run: agent.run_console(body.code, run.emit, csv_path), request)
 
 
 @app.get("/api/runs/{run_id}/events")
@@ -155,9 +158,10 @@ async def run_events(run_id: str, request: Request) -> StreamingResponse:
     if run is None:
         raise HTTPException(404, "Run not found or expired")
     start = _parse_last_event_id(request.headers.get("last-event-id"))
-    if not streams.try_enter():
+    client = _client(request)
+    if not streams.try_enter(client):
         raise HTTPException(503, "Too many live viewers right now. Try again shortly.")
-    release = _once(streams.exit)
+    release = _once(lambda: streams.exit(client))
 
     async def stream():
         # Polls an in-memory list: no worker thread is held while a run is quiet.

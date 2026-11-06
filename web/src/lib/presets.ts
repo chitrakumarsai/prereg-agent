@@ -43,7 +43,7 @@ except Exception as e:
     containedWhen: (s, log) => s === "ok" && !has(log, "BEGIN OPENSSH", "LEAKED"),
     code: `import os, socket
 
-for path in ["/root/.ssh/id_ed25519", "/home/linuxuser/.ssh", "/etc/shadow", "/opt/prereg/.env"]:
+for path in ["/root/.ssh/id_ed25519", "/home/linuxuser/.ssh", "/etc/shadow", "/etc/prereg.env"]:
     try:
         data = open(path).read() if os.path.isfile(path) else os.listdir(path)
         print("LEAKED", path, str(data)[:80])
