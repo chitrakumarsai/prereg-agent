@@ -19,5 +19,9 @@ def test_extract_code_takes_the_longest_python_block():
     assert extract_code(text) == "import pandas\nprint(1)"
 
 
+def test_extract_code_drops_an_unclosed_fence():
+    assert extract_code("```python\nimport pandas\nprint(1)\n") == "import pandas\nprint(1)"
+
+
 def test_extract_code_accepts_a_bare_script():
     assert extract_code("print('hi')\n") == "print('hi')"

@@ -13,6 +13,7 @@ from prereg import config
 log = logging.getLogger(__name__)
 
 FENCE = re.compile(r"```(?:python|py)?\s*\n(.*?)```", re.DOTALL)
+UNCLOSED_FENCE = re.compile(r"^\s*```[\w-]*\s*$", re.MULTILINE)
 
 
 class LLMError(RuntimeError):
@@ -63,7 +64,8 @@ def extract_json(text: str) -> dict:
 def extract_code(text: str) -> str:
     """Pull a Python script out of a model reply."""
     blocks = FENCE.findall(text)
-    code = max(blocks, key=len) if blocks else text
+    # An unclosed fence (a truncated or sloppy reply) leaves fence lines behind; drop them.
+    code = max(blocks, key=len) if blocks else UNCLOSED_FENCE.sub("", text)
     code = code.strip()
     if not code:
         raise LLMError("reply contains no code")

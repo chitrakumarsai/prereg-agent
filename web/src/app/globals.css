@@ -1,0 +1,236 @@
+@import "tailwindcss";
+
+/* Dealt by taste-skill: palette "three-stones", type "plex", radius "sharp". */
+:root {
+  --p-bg: #eeecea;
+  --p-surface: #e4e1dd;
+  --p-paper: #f7f6f4;
+  --p-ink: #333231;
+  --p-muted: #625f5b;
+  --p-line: #d3cfca;
+  --p-accent: #5c6b54;
+  --p-accent-soft: #dfe4da;
+  --p-inv-bg: #2b2a29;
+  --p-inv-surface: #3e3d3c;
+  --p-inv-line: #4a4847;
+  --p-inv-ink: #eeecea;
+  --p-inv-muted: #adaba9;
+  /* Semantic: pass is the brand sage; fail and contained get their own hues. */
+  --p-pass: #5c6b54;
+  --p-fail: #a4442f;
+  --p-fail-soft: #f1dcd5;
+  --p-contain: #9a6b1f;
+  --p-contain-soft: #f2e6cf;
+  --p-term-pass: #a9c39b;
+  --p-term-fail: #e58f78;
+  --p-term-warn: #e3b66a;
+
+  --duration-fast: 150ms;
+  --duration-normal: 280ms;
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@theme inline {
+  --color-bg: var(--p-bg);
+  --color-surface: var(--p-surface);
+  --color-paper: var(--p-paper);
+  --color-ink: var(--p-ink);
+  --color-muted: var(--p-muted);
+  --color-line: var(--p-line);
+  --color-accent: var(--p-accent);
+  --color-accent-soft: var(--p-accent-soft);
+  --color-inv-bg: var(--p-inv-bg);
+  --color-inv-surface: var(--p-inv-surface);
+  --color-inv-line: var(--p-inv-line);
+  --color-inv-ink: var(--p-inv-ink);
+  --color-inv-muted: var(--p-inv-muted);
+  --color-pass: var(--p-pass);
+  --color-fail: var(--p-fail);
+  --color-fail-soft: var(--p-fail-soft);
+  --color-contain: var(--p-contain);
+  --color-contain-soft: var(--p-contain-soft);
+  --color-term-pass: var(--p-term-pass);
+  --color-term-fail: var(--p-term-fail);
+  --color-term-warn: var(--p-term-warn);
+  --font-sans: var(--font-plex-sans), system-ui, sans-serif;
+  --font-mono: var(--font-plex-mono), ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --radius-sm: 2px;
+  --radius-md: 4px;
+  --radius-lg: 6px;
+}
+
+html {
+  background: var(--p-bg);
+  color: var(--p-ink);
+  scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  font-family: var(--font-sans);
+  font-size: clamp(1rem, 0.96rem + 0.2vw, 1.0625rem);
+  line-height: 1.55;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+section[id] {
+  scroll-margin-top: 4rem; /* the sticky nav */
+}
+
+::selection {
+  background: var(--p-accent);
+  color: #fff;
+}
+
+:focus-visible {
+  outline: 2px solid var(--p-accent);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+
+.wrap {
+  width: 100%;
+  max-width: 1312px;
+  margin-inline: auto;
+  padding-inline: clamp(16px, 4vw, 64px);
+}
+
+.display {
+  font-weight: 500;
+  letter-spacing: -0.035em;
+  line-height: 1.02;
+}
+
+.h2 {
+  font-weight: 500;
+  letter-spacing: -0.025em;
+  line-height: 1.08;
+  font-size: clamp(2rem, 1.3rem + 2.4vw, 3.25rem);
+}
+
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--p-muted);
+}
+
+/* Motion layer: buttons step and press, linked cards lift 2px, underlines draw. */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  height: 44px;
+  padding-inline: 1.25rem;
+  border-radius: var(--radius-md);
+  font-weight: 500;
+  font-size: 0.9375rem;
+  transition:
+    transform var(--duration-fast) var(--ease-out-expo),
+    background-color var(--duration-normal) var(--ease-out-expo),
+    box-shadow var(--duration-normal) var(--ease-out-expo);
+}
+.btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+.btn:active:not(:disabled) {
+  transform: translateY(0) scale(0.98);
+}
+.btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.btn-primary {
+  background: var(--p-accent);
+  color: #fff;
+  box-shadow: 0 1px 0 rgb(0 0 0 / 0.12), inset 0 1px 0 rgb(255 255 255 / 0.12);
+}
+.btn-primary:hover:not(:disabled) {
+  background: #4f5d48;
+  box-shadow: 0 6px 18px -8px rgb(92 107 84 / 0.7);
+}
+.btn-secondary {
+  background: transparent;
+  color: var(--p-ink);
+  box-shadow: inset 0 0 0 1px var(--p-ink);
+}
+.btn-secondary:hover:not(:disabled) {
+  background: var(--p-ink);
+  color: var(--p-bg);
+}
+.on-dark .btn-secondary {
+  color: var(--p-inv-ink);
+  box-shadow: inset 0 0 0 1px var(--p-inv-muted);
+}
+.on-dark .btn-secondary:hover:not(:disabled) {
+  background: var(--p-inv-ink);
+  color: var(--p-inv-bg);
+}
+
+.link-draw {
+  background-image: linear-gradient(currentColor, currentColor);
+  background-size: 0% 1px;
+  background-position: 0 100%;
+  background-repeat: no-repeat;
+  transition: background-size var(--duration-normal) var(--ease-out-expo);
+}
+.link-draw:hover {
+  background-size: 100% 1px;
+}
+
+.card-lift {
+  transition:
+    transform var(--duration-normal) var(--ease-out-expo),
+    box-shadow var(--duration-normal) var(--ease-out-expo),
+    border-color var(--duration-normal) var(--ease-out-expo);
+}
+.card-lift:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 28px -16px rgb(51 50 49 / 0.45);
+}
+
+/* Receipt paper: perforated top and bottom edges. */
+.receipt-edge {
+  --tooth: 8px;
+  mask:
+    radial-gradient(circle at 50% 0, transparent 4px, #000 4.5px) top / var(--tooth) 51% repeat-x,
+    radial-gradient(circle at 50% 100%, transparent 4px, #000 4.5px) bottom / var(--tooth) 51% repeat-x;
+}
+
+.dot-breathe {
+  animation: breathe 2.4s ease-in-out infinite;
+}
+@keyframes breathe {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.35; transform: scale(0.8); }
+}
+
+@keyframes check-in {
+  0%, 8% { opacity: 0.25; }
+  14%, 100% { opacity: 1; }
+}
+
+@keyframes pulse-line {
+  from { stroke-dashoffset: 120; }
+  to { stroke-dashoffset: 0; }
+}
+
+.log-line {
+  animation: line-in 220ms var(--ease-out-expo) both;
+}
+@keyframes line-in {
+  from { opacity: 0; transform: translateY(3px); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

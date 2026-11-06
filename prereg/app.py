@@ -3,11 +3,13 @@
 import asyncio
 import json
 import logging
+import os
 import shutil
 import tempfile
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -17,6 +19,9 @@ from prereg.runs import RateLimiter, Run, RunStore
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
 app = FastAPI(title="Prereg", docs_url="/api/docs", openapi_url="/api/openapi.json")
+# Local development only (Next on :3000, API on :8000). Production is same-origin behind Caddy.
+if cors := os.environ.get("PREREG_CORS_ORIGINS"):
+    app.add_middleware(CORSMiddleware, allow_origins=cors.split(","), allow_methods=["GET", "POST"], allow_headers=["*"])
 store = RunStore()
 limiter = RateLimiter(config.RATE_LIMIT_RUNS, config.RATE_LIMIT_WINDOW_S)
 DATASETS: list[dict] = json.loads((config.DEMO_DIR / "datasets.json").read_text())

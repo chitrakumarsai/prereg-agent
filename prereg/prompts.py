@@ -40,7 +40,8 @@ The script must:
 2. write /out/result.json with keys: "test" (the plan's test name), "statistic" (float), "p_value" (float),
    "decision" ("reject" if p_value < alpha else "fail_to_reject"), "n_used" (int), "summary" (an object of a few
    descriptive numbers, for example group means)
-3. save one clear chart to /out/chart.png
+3. save one clear chart to /out/chart.png: figsize (8, 5), dpi 120, white background, colours "#5c6b54" and
+   "#a3a29f" only, top and right spines removed, a short title, labelled axes
 Reply with ONLY the script in a ```python code block."""
 
 EXPLAIN_SYSTEM = """You explain a verified statistical result to a business reader in plain English.
