@@ -6,6 +6,8 @@ recomputes** every number and hands you a receipt you can check.
 
 Built for the **Vultr Agent Rush** hackathon, **Blast Radius Zero** track (Pattern A: sandboxed code execution).
 
+**Docs:** [Runbook: run it and common tasks](docs/RUNBOOK.md) · [Presenting Prereg](docs/PRESENTATION.md) · [Submission kit](docs/submission/)
+
 ## Why
 
 Two things make AI data analysis hard to trust:
