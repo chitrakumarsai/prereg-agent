@@ -130,3 +130,12 @@ except OSError:
     assert "UNBOUNDED" not in run.log, run.log
     assert run.status != "ok" or "CAPPED" in run.log
     assert run.duration_s < 8
+
+
+@SANDBOX
+def test_fifo_in_out_does_not_hang_the_host(demo_csv):
+    code = b"import os\nos.mkfifo('/out/result.json')\nos.mkfifo('/out/chart.png')\n"
+    started = time.monotonic()
+    run = run_in_sandbox(demo_csv, {"a.py": code}, "a.py")
+    assert time.monotonic() - started < 15
+    assert run.result is None and run.artifacts == {}

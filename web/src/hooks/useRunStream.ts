@@ -47,11 +47,15 @@ export function useRunStream(): {
       const source = new EventSource(eventsUrl(runId));
       sourceRef.current = source;
       source.onmessage = (msg) => {
+        let event: ServerEvent;
         try {
-          dispatch({ type: "event", event: JSON.parse(msg.data) as ServerEvent });
+          event = JSON.parse(msg.data) as ServerEvent;
         } catch {
-          // a malformed event is skipped; the stream continues
+          close();
+          dispatch({ type: "fail", message: "Received an unreadable update from the server. Please run it again." });
+          return;
         }
+        dispatch({ type: "event", event });
       };
       source.addEventListener("end", () => {
         close();

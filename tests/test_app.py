@@ -75,3 +75,22 @@ def test_queue_cap_rejects_new_runs():
     with pytest.raises(QueueFull):
         store.start("x", lambda run: None)
     gate.set()
+
+
+def test_nan_in_events_reaches_the_browser_as_valid_json():
+    from prereg.app import store
+    def work(run):
+        run.emit("verify", {"recomputed": {"statistic": float("nan"), "p_value": float("inf")}, "checks": []})
+    run_id = store.start("analysis", work).id
+    events = _events(run_id)
+    verify = next(e for e in events if e["type"] == "verify")
+    assert verify["data"]["recomputed"] == {"statistic": None, "p_value": None}
+
+
+def test_stream_counter_is_atomic_and_capped():
+    from prereg.runs import StreamCounter
+    counter = StreamCounter(limit=2)
+    assert counter.try_enter() and counter.try_enter()
+    assert not counter.try_enter()
+    counter.exit()
+    assert counter.try_enter()

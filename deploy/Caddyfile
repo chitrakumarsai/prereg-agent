@@ -1,6 +1,5 @@
 # HTTPS via a free sslip.io name for the VM's IP. Set PREREG_DOMAIN, e.g. 64-177-53-95.sslip.io
 {$PREREG_DOMAIN} {
-	encode zstd gzip
 
 	header {
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"
@@ -22,6 +21,7 @@
 	}
 
 	handle {
+		encode zstd gzip  # static files only: compressing /api would buffer the live event streams
 		root * /opt/prereg/web/out
 		try_files {path} {path}.html /index.html
 		file_server

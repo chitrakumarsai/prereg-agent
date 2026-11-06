@@ -56,7 +56,7 @@ docker run --rm --runtime runsc --network none \
 | Read-only inputs | Data and code are mounted read-only; the root filesystem is read-only; only `/out` is writable |
 | Least privilege | uid 1000, every capability dropped, `no-new-privileges` |
 | Lifecycle | `--rm`, and the run folder is deleted in a `finally` block, after every step |
-| Host protection | At most 2 sandboxes at once and 8 queued runs, 12 runs per address per 10 minutes, 24 live streams, 6 MB request cap at Caddy and 5 MB uploads, 20 KB console code |
+| Host protection | At most 2 sandbox containers at once and 8 unfinished runs overall, 12 runs per address per 10 minutes, 24 live streams (they poll memory and hold no threads), 100 finished runs kept, 6 MB request cap at Caddy and 5 MB uploads, 20 KB console code |
 
 **See it yourself:** the **Try to break the sandbox** console runs your Python in the same sandbox, with presets for
 secret theft, reading host files, tampering with data, an infinite loop, a memory bomb and a fork bomb.
@@ -118,7 +118,7 @@ git clone https://github.com/chitrakumarsai/prereg-agent /opt/prereg
 PREREG_DOMAIN=<ip-with-dashes>.sslip.io VULTR_INFERENCE_KEY=... bash /opt/prereg/deploy/bootstrap.sh
 ```
 
-This installs Docker, gVisor (from the gvisor.dev apt repository), Caddy and Node, builds the sandbox image and the
+Tested on Ubuntu 24.04 and later (Caddy comes from Ubuntu's own repository from 24.04). This installs Docker, gVisor (from the gvisor.dev apt repository), Caddy and Node, builds the sandbox image and the
 site, writes the key to a root-only env file, starts the service and opens only ports 22, 80 and 443.
 
 ## Known limits

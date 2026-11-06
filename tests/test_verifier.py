@@ -95,3 +95,9 @@ def test_recompute_in_sandbox(demo_csv):
     run = recompute_in_sandbox(plan, demo_csv)
     assert run.status == "ok", run.log
     assert run.result["groups"] == ["control", "one_page_checkout"]
+
+
+def test_single_value_column_is_rejected(profile):
+    one_value = {**profile, "columns": [*profile["columns"], {"name": "flat", "kind": "numeric", "unique": 1}]}
+    problems = validate_plan(_plan(test="ols", outcome="value", predictor="flat"), one_value)
+    assert any("fewer than 2 distinct values" in p for p in problems)

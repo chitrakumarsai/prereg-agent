@@ -24,6 +24,9 @@ def validate_plan(plan: AnalysisPlan, profile: dict) -> list[str]:
     if plan.outcome == plan.predictor:
         return ["outcome and predictor must be different columns"]
     y, x = cols[plan.outcome], cols[plan.predictor]
+    problems += [f"{c['name']!r} has fewer than 2 distinct values" for c in (y, x) if c["unique"] < 2]
+    if problems:
+        return problems
     if plan.test in ("welch_t", "mann_whitney"):
         if y["kind"] != "numeric":
             problems.append(f"{plan.test} needs a numeric outcome; {y['name']!r} is categorical")

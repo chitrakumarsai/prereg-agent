@@ -1,18 +1,29 @@
 """In-memory run registry: background workers append events, SSE readers replay and follow them."""
 
 import logging
+import math
 import threading
 import time
 import uuid
 from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import Any
 
 from prereg import config
 
 log = logging.getLogger(__name__)
 
-_sandbox_slots = threading.BoundedSemaphore(config.MAX_CONCURRENT_SANDBOXES)
+
+def json_safe(value: Any) -> Any:
+    """Copy of `value` with NaN and infinities replaced by None: browsers' JSON.parse rejects them."""
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {k: json_safe(v) for k, v in value.items()}
+    if isinstance(value, list | tuple):
+        return [json_safe(v) for v in value]
+    return value
 
 
 @dataclass
@@ -22,23 +33,20 @@ class Run:
     created: float = field(default_factory=time.time)
     events: list[dict] = field(default_factory=list)
     done: bool = False
-    cond: threading.Condition = field(default_factory=threading.Condition)
+    lock: threading.Lock = field(default_factory=threading.Lock)
 
     def emit(self, kind: str, data: dict) -> None:
-        with self.cond:
-            self.events.append({"id": len(self.events), "type": kind, "t": round(time.time() - self.created, 2),
-                                "data": data})
-            self.cond.notify_all()
+        event = {"id": 0, "type": kind, "t": round(time.time() - self.created, 2), "data": json_safe(data)}
+        with self.lock:
+            self.events.append({**event, "id": len(self.events)})
 
     def finish(self) -> None:
-        with self.cond:
+        with self.lock:
             self.done = True
-            self.cond.notify_all()
 
-    def wait_from(self, index: int, timeout: float) -> tuple[list[dict], bool]:
-        with self.cond:
-            if index >= len(self.events) and not self.done:
-                self.cond.wait(timeout)
+    def read_from(self, index: int) -> tuple[list[dict], bool]:
+        """Events from `index` on, and whether the run has finished. Never blocks."""
+        with self.lock:
             return self.events[index:], self.done
 
 
@@ -47,15 +55,19 @@ class QueueFull(RuntimeError):
 
 
 class StreamCounter:
-    """Counts live SSE streams."""
+    """Counts live SSE streams against a cap; checking and counting happen in one step."""
 
-    def __init__(self) -> None:
+    def __init__(self, limit: int) -> None:
         self.active = 0
+        self._limit = limit
         self._lock = threading.Lock()
 
-    def enter(self) -> None:
+    def try_enter(self) -> bool:
         with self._lock:
+            if self.active >= self._limit:
+                return False
             self.active += 1
+            return True
 
     def exit(self) -> None:
         with self._lock:
@@ -83,10 +95,8 @@ class RunStore:
         return run
 
     def _execute(self, run: Run, work: Callable[[Run], None]) -> None:
-        run.emit("queued", {"message": "waiting for a free sandbox slot"})
         try:
-            with _sandbox_slots:
-                work(run)
+            work(run)
         except Exception as exc:  # noqa: BLE001 - every failure must reach the user as an event
             log.exception("run %s failed", run.id)
             run.emit("error", {"message": str(exc)[:500] or type(exc).__name__})
@@ -95,8 +105,11 @@ class RunStore:
 
     def _prune(self) -> None:
         cutoff = time.time() - config.RUN_RETENTION_S
-        for run_id in [r.id for r in self._runs.values() if r.done and r.created < cutoff]:
-            del self._runs[run_id]
+        finished = sorted((r for r in self._runs.values() if r.done), key=lambda r: r.created)
+        excess = max(len(finished) - config.MAX_RETAINED_RUNS, 0)
+        for i, run in enumerate(finished):
+            if i < excess or run.created < cutoff:
+                del self._runs[run.id]
 
 
 class RateLimiter:

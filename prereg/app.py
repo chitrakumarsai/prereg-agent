@@ -6,6 +6,8 @@ import logging
 import os
 import shutil
 import tempfile
+import threading
+import weakref
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
@@ -26,8 +28,9 @@ store = RunStore()
 limiter = RateLimiter(config.RATE_LIMIT_RUNS, config.RATE_LIMIT_WINDOW_S)
 DATASETS: list[dict] = json.loads((config.DEMO_DIR / "datasets.json").read_text())
 DATASET_IDS = {d["id"] for d in DATASETS}
-SSE_POLL_S = 15
-streams = StreamCounter()  # each live stream parks a worker thread; capped below the pool size
+SSE_POLL_S = 0.25
+SSE_KEEPALIVE_S = 15
+streams = StreamCounter(config.MAX_LIVE_STREAMS)
 
 
 class ConsoleRequest(BaseModel):
@@ -149,27 +152,48 @@ async def run_events(run_id: str, request: Request) -> StreamingResponse:
     if run is None:
         raise HTTPException(404, "Run not found or expired")
     start = _parse_last_event_id(request.headers.get("last-event-id"))
-    if streams.active >= config.MAX_LIVE_STREAMS:
+    if not streams.try_enter():
         raise HTTPException(503, "Too many live viewers right now. Try again shortly.")
+    release = _once(streams.exit)
 
     async def stream():
-        index = start
-        streams.enter()  # counted inside the generator so the matching exit always runs
+        # Polls an in-memory list: no worker thread is held while a run is quiet.
+        index, quiet = start, 0.0
         try:
             while True:
-                events, done = await asyncio.to_thread(run.wait_from, index, SSE_POLL_S)
+                events, done = run.read_from(index)
                 for event in events:
-                    yield f"id: {event['id']}\nevent: message\ndata: {json.dumps(event)}\n\n"
+                    yield f"id: {event['id']}\nevent: message\ndata: {json.dumps(event, allow_nan=False)}\n\n"
                 index += len(events)
                 if done and not events:
                     yield "event: end\ndata: {}\n\n"
                     return
-                if not events:
+                if events:
+                    quiet = 0.0
+                elif quiet >= SSE_KEEPALIVE_S:
                     yield ": keep-alive\n\n"
+                    quiet = 0.0
                 if await request.is_disconnected():
                     return
+                await asyncio.sleep(SSE_POLL_S)
+                quiet += SSE_POLL_S
         finally:
-            streams.exit()
+            release()
 
+    generator = stream()
+    weakref.finalize(generator, release)  # also frees the slot if the response is never iterated
     headers = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
-    return StreamingResponse(stream(), media_type="text/event-stream", headers=headers)
+    return StreamingResponse(generator, media_type="text/event-stream", headers=headers)
+
+
+def _once(fn):
+    lock, called = threading.Lock(), [False]
+
+    def wrapper() -> None:
+        with lock:
+            if called[0]:
+                return
+            called[0] = True
+        fn()
+
+    return wrapper

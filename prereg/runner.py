@@ -29,6 +29,7 @@ GRACE_S = 20  # extra wait before the host gives up on the docker client itself
 MAX_LINE_CHARS = 2_000  # longer output lines are split; bounds host memory per read
 MAX_LOG_LINES = 2_000
 LINE_OVERHEAD = 64  # so a flood of empty lines still counts against the byte budget
+_sandbox_slots = threading.BoundedSemaphore(config.MAX_CONCURRENT_SANDBOXES)
 
 
 def build_command(name: str, data_dir: Path, code_dir: Path, out_dir: Path, entry: str, timeout_s: int) -> list[str]:
@@ -91,7 +92,8 @@ def _pump(stream, sink: list[str], state: dict, on_line: LineCallback | None) ->
 def _read_regular_file(path: Path, limit: int) -> bytes | None:
     """Read a file the sandbox wrote, refusing symlinks and anything that is not a plain file."""
     try:
-        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+        # O_NONBLOCK: a FIFO planted by the sandbox must not hang the host on open().
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     except OSError:
         return None
     with os.fdopen(fd, "rb") as fh:
@@ -147,6 +149,14 @@ def run_in_sandbox(
     """Execute `/code/<entry>` in a fresh sandbox, stream its output, then destroy everything."""
     if entry not in files:
         raise ValueError(f"entry {entry!r} is not among the provided files")
+    # Only containers take a slot; model calls between them do not.
+    with _sandbox_slots:
+        return _run(csv_path, files, entry, timeout_s, on_line)
+
+
+def _run(
+    csv_path: Path | None, files: dict[str, bytes], entry: str, timeout_s: int, on_line: LineCallback | None
+) -> RunResult:
     name = f"prereg-{uuid.uuid4().hex[:12]}"
     run_dir = config.RUNS_DIR / name
     started = time.monotonic()
@@ -160,18 +170,20 @@ def run_in_sandbox(
         )
         pump = threading.Thread(target=_pump, args=(proc.stdout, lines, state, on_line), daemon=True)
         pump.start()
+        hung = False
         try:
             exit_code = proc.wait(timeout=timeout_s + GRACE_S)
         except subprocess.TimeoutExpired:
             log.warning("sandbox %s ignored its timeout; force-removing", name)
-            subprocess.run(["docker", "rm", "-f", name], capture_output=True, check=False)
+            hung = True
+            subprocess.run(["docker", "rm", "-f", name], capture_output=True, check=False, timeout=30)
             proc.kill()
             exit_code = proc.wait()
         pump.join(timeout=5)
         duration = time.monotonic() - started
         result, result_error = _read_result(out_dir)
         return RunResult(
-            status=_classify(exit_code, duration, timeout_s),
+            status="timeout" if hung else _classify(exit_code, duration, timeout_s),
             exit_code=exit_code,
             duration_s=round(duration, 2),
             log="\n".join(lines),
