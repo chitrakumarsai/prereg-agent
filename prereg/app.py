@@ -1,0 +1,140 @@
+"""HTTP API. Run: uv run uvicorn prereg.app:app --port 8000"""
+
+import asyncio
+import json
+import logging
+import shutil
+import tempfile
+from pathlib import Path
+
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse, StreamingResponse
+from pydantic import BaseModel, Field
+
+from prereg import agent, config
+from prereg.runs import RateLimiter, Run, RunStore
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+
+app = FastAPI(title="Prereg", docs_url="/api/docs", openapi_url="/api/openapi.json")
+store = RunStore()
+limiter = RateLimiter(config.RATE_LIMIT_RUNS, config.RATE_LIMIT_WINDOW_S)
+DATASETS: list[dict] = json.loads((config.DEMO_DIR / "datasets.json").read_text())
+DATASET_IDS = {d["id"] for d in DATASETS}
+SSE_POLL_S = 15
+
+
+class ConsoleRequest(BaseModel):
+    code: str = Field(min_length=1, max_length=config.MAX_CONSOLE_CODE_CHARS)
+    dataset: str | None = None
+
+
+def _client(request: Request) -> str:
+    forwarded = request.headers.get("x-forwarded-for", "")  # set by Caddy in production
+    return forwarded.split(",")[0].strip() or (request.client.host if request.client else "unknown")
+
+
+def _check_rate(request: Request) -> None:
+    if not limiter.allow(_client(request)):
+        raise HTTPException(429, "Too many runs from your address. Try again in a few minutes.")
+
+
+def _demo_path(dataset: str) -> Path:
+    if dataset not in DATASET_IDS:
+        raise HTTPException(404, "Unknown dataset")
+    return config.DEMO_DIR / f"{dataset}.csv"
+
+
+async def _save_upload(upload: UploadFile) -> Path:
+    if not (upload.filename or "").lower().endswith(".csv"):
+        raise HTTPException(400, "Please upload a .csv file")
+    tmp = Path(tempfile.mkstemp(suffix=".csv", prefix="upload-")[1])
+    size = 0
+    with tmp.open("wb") as fh:
+        while chunk := await upload.read(64_000):
+            size += len(chunk)
+            if size > config.MAX_UPLOAD_BYTES:
+                tmp.unlink(missing_ok=True)
+                raise HTTPException(413, f"CSV is larger than {config.MAX_UPLOAD_BYTES // 1_000_000} MB")
+            fh.write(chunk)
+    if size == 0:
+        tmp.unlink(missing_ok=True)
+        raise HTTPException(400, "The file is empty")
+    return tmp
+
+
+@app.get("/api/health")
+def health() -> dict:
+    return {"ok": True, "runtime": config.SANDBOX_RUNTIME, "image": config.SANDBOX_IMAGE, "model": config.MODEL,
+            "docker": shutil.which("docker") is not None}
+
+
+@app.get("/api/policy")
+def policy() -> dict:
+    return agent.sandbox_policy()
+
+
+@app.get("/api/datasets")
+def datasets() -> list[dict]:
+    return DATASETS
+
+
+@app.get("/api/datasets/{dataset}.csv")
+def dataset_file(dataset: str) -> FileResponse:
+    return FileResponse(_demo_path(dataset), media_type="text/csv", filename=f"{dataset}.csv")
+
+
+@app.post("/api/runs")
+async def create_run(
+    request: Request,
+    question: str = Form(min_length=5, max_length=config.MAX_QUESTION_CHARS),
+    dataset: str | None = Form(default=None),
+    file: UploadFile | None = File(default=None),
+) -> dict:
+    if (dataset is None) == (file is None):
+        raise HTTPException(400, "Send either a demo dataset id or a CSV file")
+    _check_rate(request)
+    upload = await _save_upload(file) if file is not None else None
+    csv_path = upload or _demo_path(dataset)
+
+    def work(run: Run) -> None:
+        try:
+            agent.analyse(csv_path, question.strip(), run.emit)
+        finally:
+            if upload is not None:
+                upload.unlink(missing_ok=True)
+
+    return {"run_id": store.start("analysis", work).id}
+
+
+@app.post("/api/console")
+def create_console_run(request: Request, body: ConsoleRequest) -> dict:
+    _check_rate(request)
+    csv_path = _demo_path(body.dataset) if body.dataset else None
+    return {"run_id": store.start("console", lambda run: agent.run_console(body.code, run.emit, csv_path)).id}
+
+
+@app.get("/api/runs/{run_id}/events")
+async def run_events(run_id: str, request: Request) -> StreamingResponse:
+    run = store.get(run_id)
+    if run is None:
+        raise HTTPException(404, "Run not found or expired")
+    start = int(request.headers.get("last-event-id", "-1")) + 1
+
+    async def stream():
+        index = start
+        while True:
+            events, done = await asyncio.to_thread(run.wait_from, index, SSE_POLL_S)
+            for event in events:
+                yield f"id: {event['id']}\nevent: message\ndata: {json.dumps(event)}\n\n"
+            index += len(events)
+            if done and not events:
+                yield "event: end\ndata: {}\n\n"
+                return
+            if not events:
+                yield ": keep-alive\n\n"
+            if await request.is_disconnected():
+                return
+
+    headers = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
+    return StreamingResponse(stream(), media_type="text/event-stream", headers=headers)

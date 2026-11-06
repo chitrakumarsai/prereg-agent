@@ -8,7 +8,18 @@ dependencies = [
     "fastapi>=0.162.0",
     "openai>=3.46.0",
     "pandas>=3.1.1",
+    "python-multipart>=0.0.33",
     "scipy>=1.18.1",
     "statsmodels>=0.15.0",
     "uvicorn>=0.54.0",
 ]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "pytest>=9.2.0",
+]
+
+[tool.pytest.ini_options]
+pythonpath = [".", "tests"]
+testpaths = ["tests"]
