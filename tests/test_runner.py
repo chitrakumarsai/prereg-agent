@@ -82,3 +82,51 @@ def test_infinite_loop_is_killed_at_the_timeout(demo_csv):
 def test_run_folder_is_destroyed(demo_csv):
     run_in_sandbox(demo_csv, {"a.py": b"print('hi')"}, "a.py")
     assert not any(config.RUNS_DIR.glob("prereg-*"))
+
+
+@SANDBOX
+def test_symlinked_result_is_refused(demo_csv, tmp_path):
+    secret = tmp_path / "host-secret.json"
+    secret.write_text('{"stolen": true}')
+    code = f"import os; os.symlink({str(secret)!r}, '/out/result.json')".encode()
+    run = run_in_sandbox(demo_csv, {"a.py": code}, "a.py")
+    assert run.result is None
+    assert "symlinks are refused" in run.result_error
+
+
+@SANDBOX
+def test_long_line_and_line_flood_are_capped(demo_csv):
+    code = b"import sys\nsys.stdout.write('A' * 3_000_000)\nprint()\nprint('\\n' * 200_000)\n"
+    run = run_in_sandbox(demo_csv, {"a.py": code}, "a.py")
+    assert run.log_truncated
+    assert len(run.log) <= config.MAX_LOG_BYTES
+    assert run.log.count("\n") < 2_000
+
+
+@SANDBOX
+def test_pid1_environment_is_empty_too(demo_csv):
+    code = b"print(sorted(v.split('=')[0] for v in open('/proc/1/environ').read().split('\\0') if v))"
+    run = run_in_sandbox(demo_csv, {"a.py": code}, "a.py")
+    assert run.status == "ok", run.log
+    assert run.log.strip() == str(sorted(["PATH", "HOME", "MPLCONFIGDIR"]))
+
+
+@SANDBOX
+def test_fork_bomb_hits_the_pids_limit(demo_csv):
+    code = b"""
+import os, time
+n = 0
+try:
+    for _ in range(1000):
+        if os.fork() == 0:
+            time.sleep(10); os._exit(0)
+        n += 1
+    print("UNBOUNDED", n)
+except OSError:
+    print("CAPPED", n)
+"""
+    run = run_in_sandbox(demo_csv, {"a.py": code}, "a.py", timeout_s=8)
+    # Under gVisor the pids cap ends the whole sandbox within a second; under runc fork() fails instead.
+    assert "UNBOUNDED" not in run.log, run.log
+    assert run.status != "ok" or "CAPPED" in run.log
+    assert run.duration_s < 8

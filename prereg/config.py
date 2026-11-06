@@ -35,5 +35,7 @@ MAX_CONCURRENT_SANDBOXES = int(os.environ.get("PREREG_MAX_CONCURRENT", "2"))
 RATE_LIMIT_RUNS = 12
 RATE_LIMIT_WINDOW_S = 600
 RUN_RETENTION_S = 3600
+MAX_QUEUED_RUNS = 8  # runs waiting for or holding a sandbox slot, across all clients
+MAX_LIVE_STREAMS = 24  # below anyio's default 40-thread pool, so sync endpoints stay responsive
 
 DEMO_DIR = Path(__file__).resolve().parent.parent / "demo"

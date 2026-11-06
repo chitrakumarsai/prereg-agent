@@ -10,29 +10,40 @@ import type { RunState, ServerEvent } from "@/lib/types";
 export function useRunStream(): {
   state: RunState;
   run: (launch: () => Promise<string>) => Promise<void>;
-  reset: () => void;
 } {
   const [state, dispatch] = useReducer(runReducer, INITIAL_RUN);
   const sourceRef = useRef<EventSource | null>(null);
+  // Bumped on every new run and on unmount, so a launch that resolves late cannot open a stale stream.
+  const generation = useRef(0);
 
   const close = useCallback(() => {
     sourceRef.current?.close();
     sourceRef.current = null;
   }, []);
 
-  useEffect(() => close, [close]);
+  useEffect(
+    () => () => {
+      generation.current += 1;
+      close();
+    },
+    [close],
+  );
 
   const run = useCallback(
     async (launch: () => Promise<string>) => {
       close();
+      const mine = ++generation.current;
       dispatch({ type: "start" });
       let runId: string;
       try {
         runId = await launch();
       } catch (error: unknown) {
-        dispatch({ type: "fail", message: error instanceof Error ? error.message : "Could not start the run." });
+        if (mine === generation.current) {
+          dispatch({ type: "fail", message: error instanceof Error ? error.message : "Could not start the run." });
+        }
         return;
       }
+      if (mine !== generation.current) return;
       const source = new EventSource(eventsUrl(runId));
       sourceRef.current = source;
       source.onmessage = (msg) => {
@@ -56,10 +67,5 @@ export function useRunStream(): {
     [close],
   );
 
-  const reset = useCallback(() => {
-    close();
-    dispatch({ type: "start" });
-  }, [close]);
-
-  return { state, run, reset };
+  return { state, run };
 }

@@ -68,8 +68,9 @@ def compare(plan: AnalysisPlan, claimed: dict[str, Any], truth: dict[str, Any]) 
         Check(
             name="Result is complete",
             passed=stat is not None and p is not None and decision in ("reject", "fail_to_reject"),
-            detail="statistic, p_value and decision present" if stat is not None and p is not None
-            else "statistic or p_value missing or not a finite number",
+            detail="statistic, p_value and decision present"
+            if stat is not None and p is not None and decision in ("reject", "fail_to_reject")
+            else "statistic or p_value is missing or not finite, or decision is not reject/fail_to_reject",
         ),
         Check(
             name="Ran the pre-registered test",

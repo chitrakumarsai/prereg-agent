@@ -47,7 +47,7 @@ def sandbox_policy() -> dict:
         "cpus": config.CPU_LIMIT,
         "pids": config.PIDS_LIMIT,
         "timeout_s": config.RUN_TIMEOUT_S,
-        "filesystem": "read-only root, /data read-only, /out write-only scratch",
+        "filesystem": "read-only root and /data; /out and /tmp are the only writable folders",
         "environment": "empty (PATH, HOME, MPLCONFIGDIR only)",
         "user": "uid 1000, all capabilities dropped, no-new-privileges",
         "lifecycle": "container and run folder destroyed after every step",
@@ -96,7 +96,12 @@ def execute(plan: AnalysisPlan, profile: dict, csv_path: Path, emit: Emit) -> tu
     previous: tuple[str, str] | None = None
     for attempt in range(1, config.MAX_CODE_ATTEMPTS + 1):
         text, model = llm.chat(prompts.code_messages(plan, profile, previous), max_tokens=3500)
-        code = llm.extract_code(text)
+        try:
+            code = llm.extract_code(text)
+        except llm.LLMError as exc:
+            previous = (text[:LOG_TAIL_CHARS], f"{exc}. Reply with a complete script in a ```python block.")
+            emit("retry", {"stage": "execute", "attempt": attempt, "reason": str(exc)})
+            continue
         emit("code", {"code": code, "attempt": attempt, "model": model})
         run = run_in_sandbox(csv_path, {"analysis.py": code.encode()}, "analysis.py",
                              on_line=_sandbox_logger(emit, "execute"))

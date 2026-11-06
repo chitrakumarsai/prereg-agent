@@ -3,8 +3,11 @@ import json
 from conftest import SANDBOX
 from fastapi.testclient import TestClient
 
-from prereg.app import app
-from prereg.runs import RateLimiter
+import pytest
+from fastapi import HTTPException
+
+from prereg.app import _demo_path, _parse_last_event_id, app
+from prereg.runs import QueueFull, RateLimiter, RunStore
 
 client = TestClient(app)
 
@@ -21,7 +24,10 @@ def test_health_and_datasets():
 
 
 def test_unknown_dataset_is_404():
-    assert client.get("/api/datasets/../../etc/passwd.csv").status_code == 404
+    with pytest.raises(HTTPException) as exc:
+        _demo_path("../../etc/passwd")
+    assert exc.value.status_code == 404
+    assert client.get("/api/datasets/%2e%2e%2fsecret.csv").status_code == 404
     resp = client.post("/api/runs", data={"question": "Does it differ?", "dataset": "nope"})
     assert resp.status_code == 404
 
@@ -54,3 +60,18 @@ def test_console_streams_sandbox_output():
     lines = [e["data"]["line"] for e in events if e["type"] == "log"]
     assert "hello from inside" in lines
     assert any(e["type"] == "run" and e["data"]["status"] == "ok" for e in events)
+
+
+@pytest.mark.parametrize(("header", "expected"), [(None, 0), ("4", 5), ("-5", 0), ("abc", 0)])
+def test_last_event_id_is_parsed_defensively(header, expected):
+    assert _parse_last_event_id(header) == expected
+
+
+def test_queue_cap_rejects_new_runs():
+    import threading
+    gate = threading.Event()
+    store = RunStore(max_pending=1)
+    store.start("x", lambda run: gate.wait(5))
+    with pytest.raises(QueueFull):
+        store.start("x", lambda run: None)
+    gate.set()

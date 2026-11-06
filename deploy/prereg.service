@@ -1,0 +1,16 @@
+[Unit]
+Description=Prereg control plane (FastAPI)
+After=network-online.target docker.service
+Requires=docker.service
+
+[Service]
+WorkingDirectory=/opt/prereg
+# Holds VULTR_INFERENCE_KEY only; mode 600, root-owned. Never mounted into a sandbox.
+EnvironmentFile=/etc/prereg.env
+Environment=PREREG_RUNS_DIR=/var/lib/prereg/runs
+ExecStart=/usr/local/bin/uv run --frozen --no-dev uvicorn prereg.app:app --host 127.0.0.1 --port 8000 --workers 1
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

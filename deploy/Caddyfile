@@ -1,0 +1,29 @@
+# HTTPS via a free sslip.io name for the VM's IP. Set PREREG_DOMAIN, e.g. 64-177-53-95.sslip.io
+{$PREREG_DOMAIN} {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; object-src 'none'"
+	}
+
+	handle /api/* {
+		request_body {
+			max_size 6MB  # rejects oversized uploads before FastAPI spools them to disk
+		}
+		reverse_proxy 127.0.0.1:8000 {
+			flush_interval -1  # stream server-sent events immediately
+			header_up X-Forwarded-For {remote_host}
+		}
+	}
+
+	handle {
+		root * /opt/prereg/web/out
+		try_files {path} {path}.html /index.html
+		file_server
+	}
+}

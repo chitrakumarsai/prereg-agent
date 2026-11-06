@@ -7,7 +7,9 @@ an empty writable /out, and nothing else: no network, no secrets, no host enviro
 import base64
 import json
 import logging
+import os
 import shutil
+import stat
 import subprocess
 import threading
 import time
@@ -24,12 +26,16 @@ LineCallback = Callable[[str], None]
 EXIT_TIMEOUT = 124  # coreutils `timeout` after SIGTERM
 EXIT_SIGKILL = 137  # SIGKILL: the memory limit, or `timeout -k` escalating
 GRACE_S = 20  # extra wait before the host gives up on the docker client itself
+MAX_LINE_CHARS = 2_000  # longer output lines are split; bounds host memory per read
+MAX_LOG_LINES = 2_000
+LINE_OVERHEAD = 64  # so a flood of empty lines still counts against the byte budget
 
 
 def build_command(name: str, data_dir: Path, code_dir: Path, out_dir: Path, entry: str, timeout_s: int) -> list[str]:
     """The full `docker run` argv. Every containment control is here, in one place."""
     return [
         "docker", "run", "--rm", "--name", name, "--hostname", "sandbox",
+        "--log-driver", "none",  # output reaches us over the attached stream; dockerd keeps no copy
         "--runtime", config.SANDBOX_RUNTIME,
         "--network", "none",
         "--memory", config.MEMORY_LIMIT, "--memory-swap", config.MEMORY_LIMIT,
@@ -42,8 +48,9 @@ def build_command(name: str, data_dir: Path, code_dir: Path, out_dir: Path, entr
         "-v", f"{code_dir}:/code:ro",
         "-v", f"{out_dir}:/out:rw",
         config.SANDBOX_IMAGE,
-        "timeout", "-k", "2", str(timeout_s),
+        # env -i first, so PID 1 (and /proc/1/environ) already has the empty environment.
         "env", "-i", *config.SANDBOX_ENV,
+        "timeout", "-k", "2", str(timeout_s),
         "python", "-u", "-I", f"/code/{entry}",
     ]
 
@@ -67,25 +74,42 @@ def _prepare(run_dir: Path, csv_path: Path | None, files: dict[str, bytes]) -> t
 
 
 def _pump(stream, sink: list[str], state: dict, on_line: LineCallback | None) -> None:
-    for line in stream:
-        line = line.rstrip("\n")
-        if state["bytes"] < config.MAX_LOG_BYTES:
-            sink.append(line)
-            state["bytes"] += len(line) + 1
-        else:
+    """Drain the container's output with bounded host memory: each read is capped, and so is what is kept."""
+    while chunk := stream.readline(MAX_LINE_CHARS):
+        if state["truncated"]:
+            continue  # keep draining so the container never blocks on a full pipe
+        line = chunk.rstrip("\n")
+        state["bytes"] += len(line) + LINE_OVERHEAD
+        if state["bytes"] > config.MAX_LOG_BYTES or len(sink) >= MAX_LOG_LINES:
             state["truncated"] = True
-        if on_line is not None and not state["truncated"]:
+            continue
+        sink.append(line)
+        if on_line is not None:
             on_line(line)
+
+
+def _read_regular_file(path: Path, limit: int) -> bytes | None:
+    """Read a file the sandbox wrote, refusing symlinks and anything that is not a plain file."""
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    except OSError:
+        return None
+    with os.fdopen(fd, "rb") as fh:
+        info = os.fstat(fh.fileno())
+        if not stat.S_ISREG(info.st_mode) or info.st_size > limit:
+            return None
+        return fh.read(limit + 1)
 
 
 def _read_result(out_dir: Path) -> tuple[dict | None, str | None]:
     path = out_dir / "result.json"
-    if not path.is_file():
+    if not path.exists() and not path.is_symlink():
         return None, "the script did not write /out/result.json"
-    if path.stat().st_size > config.MAX_RESULT_BYTES:
-        return None, "result.json is larger than the 1 MB limit"
+    raw = _read_regular_file(path, config.MAX_RESULT_BYTES)
+    if raw is None:
+        return None, "result.json must be a regular file under 1 MB (symlinks are refused)"
     try:
-        data = json.loads(path.read_text())
+        data = json.loads(raw.decode())
     except (json.JSONDecodeError, UnicodeDecodeError) as exc:
         return None, f"result.json is not valid JSON: {exc}"
     if not isinstance(data, dict):
@@ -94,21 +118,21 @@ def _read_result(out_dir: Path) -> tuple[dict | None, str | None]:
 
 
 def _read_artifacts(out_dir: Path) -> dict[str, str]:
-    pngs = sorted(p for p in out_dir.glob("*.png") if p.is_file() and not p.is_symlink())
-    return {
-        p.name: base64.b64encode(p.read_bytes()).decode()
-        for p in pngs[: config.MAX_ARTIFACTS]
-        if p.stat().st_size <= config.MAX_ARTIFACT_BYTES
-    }
+    artifacts: dict[str, str] = {}
+    for path in sorted(out_dir.glob("*.png"))[: config.MAX_ARTIFACTS]:
+        raw = _read_regular_file(path, config.MAX_ARTIFACT_BYTES)
+        if raw is not None:
+            artifacts[path.name] = base64.b64encode(raw).decode()
+    return artifacts
 
 
 def _classify(exit_code: int, duration_s: float, timeout_s: int) -> str:
     if exit_code == 0:
         return "ok"
-    if exit_code == EXIT_TIMEOUT or duration_s >= timeout_s:
+    if exit_code == EXIT_TIMEOUT:
         return "timeout"
-    if exit_code == EXIT_SIGKILL:
-        return "killed"
+    if exit_code == EXIT_SIGKILL:  # `timeout -k` escalation, or the memory/pids limit
+        return "timeout" if duration_s >= timeout_s else "killed"
     return "error"
 
 

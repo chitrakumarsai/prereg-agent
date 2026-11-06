@@ -7,8 +7,8 @@ const COMMAND = `docker run --rm --runtime runsc --network none \\
   --read-only --tmpfs /tmp:rw,size=64m --cap-drop ALL \\
   --security-opt no-new-privileges --user 1000:1000 \\
   -v $RUN/data:/data:ro -v $RUN/code:/code:ro -v $RUN/out:/out \\
-  prereg-sandbox:1 timeout -k 2 30 env -i PATH=… HOME=/tmp \\
-  python -u -I /code/analysis.py`;
+  prereg-sandbox:1 env -i PATH=… HOME=/tmp MPLCONFIGDIR=/tmp/mpl \\
+  timeout -k 2 30 python -u -I /code/analysis.py`;
 
 const STACK: { icon: BrandName; name: string; role: string }[] = [
   { icon: "vultr", name: "Vultr Cloud Compute", role: "hosts the control plane and every sandbox" },
@@ -55,7 +55,7 @@ export function Containment() {
             </div>
             <div className="overflow-hidden rounded-lg bg-inv-bg">
               <p className="border-b border-inv-line px-4 py-2.5 font-mono text-xs text-inv-muted">
-                prereg/runner.py · the exact command, every step
+                prereg/runner.py · the command for every step (name and log flags omitted)
               </p>
               <pre className="overflow-x-auto px-4 py-4 font-mono text-[12px] leading-[1.75] text-inv-ink">
                 <code>{COMMAND}</code>

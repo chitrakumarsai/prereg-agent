@@ -42,10 +42,31 @@ class Run:
             return self.events[index:], self.done
 
 
-class RunStore:
+class QueueFull(RuntimeError):
+    """Too many runs are already waiting for or holding a sandbox slot."""
+
+
+class StreamCounter:
+    """Counts live SSE streams."""
+
     def __init__(self) -> None:
+        self.active = 0
+        self._lock = threading.Lock()
+
+    def enter(self) -> None:
+        with self._lock:
+            self.active += 1
+
+    def exit(self) -> None:
+        with self._lock:
+            self.active -= 1
+
+
+class RunStore:
+    def __init__(self, max_pending: int = config.MAX_QUEUED_RUNS) -> None:
         self._runs: dict[str, Run] = {}
         self._lock = threading.Lock()
+        self._max_pending = max_pending
 
     def get(self, run_id: str) -> Run | None:
         with self._lock:
@@ -55,6 +76,8 @@ class RunStore:
         run = Run(id=uuid.uuid4().hex[:16], kind=kind)
         with self._lock:
             self._prune()
+            if sum(not r.done for r in self._runs.values()) >= self._max_pending:
+                raise QueueFull
             self._runs[run.id] = run
         threading.Thread(target=self._execute, args=(run, work), daemon=True, name=f"run-{run.id}").start()
         return run
@@ -87,6 +110,10 @@ class RateLimiter:
     def allow(self, client: str) -> bool:
         now = time.time()
         with self._lock:
+            # forget clients whose whole window has expired, so the table cannot grow without bound
+            stale = [c for c, h in self._hits.items() if not h or h[-1] < now - self._window]
+            for c in stale:
+                del self._hits[c]
             hits = self._hits.setdefault(client, deque())
             while hits and hits[0] < now - self._window:
                 hits.popleft()

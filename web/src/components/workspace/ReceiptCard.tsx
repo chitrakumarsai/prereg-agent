@@ -24,7 +24,10 @@ type Props = { receipt: Receipt };
 export function ReceiptCard({ receipt }: Props) {
   const truth = receipt.verification.recomputed ?? {};
   const verified = receipt.verification.passed;
-  const decision = receipt.result.decision === "reject" ? "Significant difference" : "No significant difference";
+  // The headline comes from the independently recomputed p-value, never from the agent's own claim.
+  const verifiedP = typeof truth.p_value === "number" ? truth.p_value : null;
+  const decision =
+    verifiedP === null ? "Result unavailable" : verifiedP < receipt.plan.alpha ? "Significant difference" : "No significant difference";
   const rows: [string, string][] = [
     ["Test", receipt.test_label],
     ["Statistic", formatNumber(truth.statistic)],

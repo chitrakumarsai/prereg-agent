@@ -6,14 +6,17 @@ import { SandboxLog } from "@/components/workspace/SandboxLog";
 import { useRunStream } from "@/hooks/useRunStream";
 import { startConsole } from "@/lib/api";
 import { ATTACK_PRESETS, type AttackPreset } from "@/lib/presets";
+import type { SandboxStatus } from "@/lib/types";
 
 const MAX_CODE = 20_000;
 
-function Verdict({ preset, status, log }: { preset: AttackPreset | null; status: string; log: string }) {
+type VerdictProps = { preset: AttackPreset | null; status: SandboxStatus; log: string };
+
+function Verdict({ preset, status, log }: VerdictProps) {
   if (!preset) {
     return <p className="text-sm text-inv-muted">Custom code ran with status “{status}”. Read the log for what it reached.</p>;
   }
-  const held = preset.containedWhen(status as never, log);
+  const held = preset.containedWhen(status, log);
   return (
     <p className={`flex items-start gap-2.5 text-sm ${held ? "text-term-pass" : "text-term-fail"}`}>
       <span className="font-mono">{held ? "■" : "▲"}</span>
@@ -28,9 +31,12 @@ function Verdict({ preset, status, log }: { preset: AttackPreset | null; status:
 export function BreakIt() {
   const [presetId, setPresetId] = useState<string | null>(ATTACK_PRESETS[0].id);
   const [code, setCode] = useState(ATTACK_PRESETS[0].code);
+  // The preset that was actually run; the verdict is judged against it, not the current selection.
+  const [ranPresetId, setRanPresetId] = useState<string | null>(null);
   const { state, run } = useRunStream();
 
   const preset = ATTACK_PRESETS.find((p) => p.id === presetId) ?? null;
+  const ranPreset = ATTACK_PRESETS.find((p) => p.id === ranPresetId) ?? null;
   const isBusy = state.phase === "starting" || state.phase === "running";
   const lastRun = state.runs.at(-1);
   const logText = state.logs.map((l) => l.line).join("\n");
@@ -100,7 +106,10 @@ export function BreakIt() {
                 type="button"
                 className="btn bg-inv-ink text-inv-bg hover:bg-white"
                 disabled={isBusy || !code.trim()}
-                onClick={() => void run(() => startConsole(code, "support_tickets"))}
+                onClick={() => {
+                  setRanPresetId(presetId);
+                  void run(() => startConsole(code, "support_tickets"));
+                }}
               >
                 {isBusy ? "Running sealed…" : "Run it in the sandbox"}
               </button>
@@ -115,7 +124,7 @@ export function BreakIt() {
               idleHint="pick an attack and press run."
             />
             {state.error && <p className="text-sm text-term-fail">{state.error}</p>}
-            {lastRun && !isBusy && <Verdict preset={preset} status={lastRun.status} log={logText} />}
+            {lastRun && !isBusy && <Verdict preset={ranPreset} status={lastRun.status} log={logText} />}
           </div>
         </div>
       </div>

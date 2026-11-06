@@ -12,6 +12,7 @@ import { Pipeline } from "./Pipeline";
 import { PlanCard } from "./PlanCard";
 import { ReceiptCard } from "./ReceiptCard";
 import { SandboxLog } from "./SandboxLog";
+import { VerificationList } from "./VerificationList";
 
 const MIN_QUESTION = 5;
 const MAX_QUESTION = 500;
@@ -133,6 +134,12 @@ export function Workspace() {
                   <code>{state.code.code}</code>
                 </pre>
               </details>
+            )}
+            {state.verification && !state.receipt && (
+              <section aria-label="Verification" className="rounded-lg border border-line bg-paper px-5 py-3">
+                <p className="eyebrow pt-1">Independent verification</p>
+                <VerificationList checks={state.verification.checks} />
+              </section>
             )}
             {state.retries.length > 0 && (
               <ul className="grid gap-1 text-sm text-muted">
