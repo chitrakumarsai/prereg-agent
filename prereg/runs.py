@@ -124,7 +124,7 @@ class RunStore:
             log.exception("run %s failed", run.id)
             # Host-side failures (mounts, copies) would expose server paths; keep their detail in the log.
             hidden = isinstance(exc, OSError | subprocess.SubprocessError)
-            message = "The server could not prepare the sandbox. Please try again." if hidden else str(exc)[:500]
+            message = "A server error occurred. Please try again." if hidden else str(exc)[:500]
             run.emit("error", {"message": message or type(exc).__name__})
         finally:
             run.finish()

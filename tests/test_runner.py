@@ -80,9 +80,12 @@ def test_infinite_loop_is_killed_at_the_timeout(demo_csv):
 
 
 @SANDBOX
-def test_run_folder_is_destroyed(demo_csv):
+def test_run_folder_is_destroyed(demo_csv, monkeypatch, tmp_path):
+    runs = tmp_path / "runs"
+    runs.mkdir()
+    monkeypatch.setattr(config, "RUNS_DIR", runs)  # private dir: other tests' background runs can't interfere
     run_in_sandbox(demo_csv, {"a.py": b"print('hi')"}, "a.py")
-    assert not any(config.RUNS_DIR.glob("prereg-*"))
+    assert not any(runs.glob("prereg-*"))
 
 
 @SANDBOX

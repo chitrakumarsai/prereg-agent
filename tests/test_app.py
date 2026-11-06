@@ -126,6 +126,8 @@ def test_busy_client_gets_429_and_no_upload_is_left(monkeypatch, tmp_path):
     busy_store = RunStore(max_pending=8, per_client=1)
     monkeypatch.setattr(app_module, "store", busy_store)
     busy_store.start("x", lambda run: gate.wait(5), client="testclient")
+    # Skip the early check so the upload is staged and the cap is hit inside _start: the clean-up path.
+    monkeypatch.setattr(busy_store, "is_busy", lambda client: False)
     files = {"file": ("data.csv", b"g,v\na,1\nb,2\n", "text/csv")}
     resp = client.post("/api/runs", data={"question": "Does it differ?"}, files=files)
     gate.set()
