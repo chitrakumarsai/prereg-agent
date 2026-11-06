@@ -1,6 +1,7 @@
 """HTTP API. Run: uv run uvicorn prereg.app:app --port 8000"""
 
 import asyncio
+from contextlib import asynccontextmanager
 import json
 import logging
 import os
@@ -21,13 +22,19 @@ from prereg.runs import ClientBusy, QueueFull, RateLimiter, Run, RunStore, Strea
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
-app = FastAPI(title="Prereg", docs_url="/api/docs", openapi_url="/api/openapi.json")
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    # Only the real server sweeps; importing the module (tests, a REPL) must not delete live runs.
+    if swept := sweep_runs_dir():
+        logging.getLogger(__name__).warning("removed %d run folders left by a previous process", swept)
+    yield
+
+
+app = FastAPI(title="Prereg", docs_url="/api/docs", openapi_url="/api/openapi.json", lifespan=lifespan)
 # Local development only (Next on :3000, API on :8000). Production is same-origin behind Caddy.
 if cors := os.environ.get("PREREG_CORS_ORIGINS"):
     app.add_middleware(CORSMiddleware, allow_origins=cors.split(","), allow_methods=["GET", "POST"], allow_headers=["*"])
 store = RunStore()
-if swept := sweep_runs_dir():
-    logging.getLogger(__name__).warning("removed %d run folders left by a previous process", swept)
 limiter = RateLimiter(config.RATE_LIMIT_RUNS, config.RATE_LIMIT_WINDOW_S)
 DATASETS: list[dict] = json.loads((config.DEMO_DIR / "datasets.json").read_text())
 DATASET_IDS = {d["id"] for d in DATASETS}
@@ -55,7 +62,10 @@ def _client(request: Request) -> str:
 
 
 def _check_rate(request: Request) -> None:
-    if not limiter.allow(_client(request)):
+    client = _client(request)
+    if store.is_busy(client):  # before the rate limit, so a busy retry does not spend the budget
+        raise HTTPException(429, "You already have runs in progress. Wait for one to finish.")
+    if not limiter.allow(client):
         raise HTTPException(429, "Too many runs from your address. Try again in a few minutes.")
 
 

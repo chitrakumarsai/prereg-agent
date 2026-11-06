@@ -29,6 +29,7 @@ GRACE_S = 20  # extra wait before the host gives up on the docker client itself
 MAX_LINE_CHARS = 2_000  # longer output lines are split; bounds host memory per read
 MAX_LOG_LINES = 2_000
 LINE_OVERHEAD = 64  # so a flood of empty lines still counts against the byte budget
+MAX_SCAN_ENTRIES = 256
 _sandbox_slots = threading.BoundedSemaphore(config.MAX_CONCURRENT_SANDBOXES)
 
 
@@ -127,15 +128,18 @@ def _read_result(out_dir: Path) -> tuple[dict | None, str | None]:
 
 
 def _read_artifacts(out_dir: Path) -> dict[str, str]:
-    artifacts: dict[str, str] = {}
-    with os.scandir(out_dir) as entries:  # stops early: a run may leave thousands of files
-        for entry in entries:
-            if len(artifacts) >= config.MAX_ARTIFACTS:
+    names: list[str] = []
+    with os.scandir(out_dir) as entries:  # bounded scan: a run may leave thousands of files
+        for i, entry in enumerate(entries):
+            if i >= MAX_SCAN_ENTRIES:
                 break
             if entry.name.endswith(".png"):
-                raw = _read_regular_file(Path(entry.path), config.MAX_ARTIFACT_BYTES)
-                if raw is not None:
-                    artifacts[entry.name] = base64.b64encode(raw).decode()
+                names.append(entry.name)
+    artifacts: dict[str, str] = {}
+    for name in sorted(names)[: config.MAX_ARTIFACTS]:  # by name, so the receipt is deterministic
+        raw = _read_regular_file(out_dir / name, config.MAX_ARTIFACT_BYTES)
+        if raw is not None:
+            artifacts[name] = base64.b64encode(raw).decode()
     return artifacts
 
 

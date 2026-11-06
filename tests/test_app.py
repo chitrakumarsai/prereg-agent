@@ -115,3 +115,33 @@ def test_stream_cap_is_per_client_too():
     assert counter.try_enter("b")
     counter.exit("a")
     assert counter.try_enter("a")
+
+
+def test_busy_client_gets_429_and_no_upload_is_left(monkeypatch, tmp_path):
+    import threading
+    from prereg import app as app_module
+    from prereg import config
+    monkeypatch.setattr(config, "RUNS_DIR", tmp_path)
+    gate = threading.Event()
+    busy_store = RunStore(max_pending=8, per_client=1)
+    monkeypatch.setattr(app_module, "store", busy_store)
+    busy_store.start("x", lambda run: gate.wait(5), client="testclient")
+    files = {"file": ("data.csv", b"g,v\na,1\nb,2\n", "text/csv")}
+    resp = client.post("/api/runs", data={"question": "Does it differ?"}, files=files)
+    gate.set()
+    assert resp.status_code == 429
+    assert not list(tmp_path.glob("upload-*.csv"))
+
+
+def test_host_errors_are_not_shown_to_users():
+    store = RunStore()
+    def work(run):
+        raise OSError("mount /var/lib/prereg/runs/prereg-1/out failed")
+    run = store.start("x", work)
+    import time
+    for _ in range(50):
+        if run.done:
+            break
+        time.sleep(0.05)
+    message = next(e["data"]["message"] for e in run.events if e["type"] == "error")
+    assert "/var/lib" not in message

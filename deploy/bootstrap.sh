@@ -31,7 +31,8 @@ fi
 
 umask 077
 printf 'VULTR_INFERENCE_KEY=%s\n' "$VULTR_INFERENCE_KEY" > /etc/prereg.env
-# Sandbox scratch (/out) lives on a size-capped tmpfs, so a run cannot fill the VM's disk.
+# Run folders (data and code copies, staged uploads) live on a 192 MB tmpfs, sized for the 8-run queue cap;
+# each run's /out is a further private 32 MB tmpfs mounted by the runner. Nothing here can fill the VM's disk.
 mkdir -p /var/lib/prereg/runs
 grep -q ' /var/lib/prereg/runs ' /etc/fstab || \
   echo 'tmpfs /var/lib/prereg/runs tmpfs size=192m,mode=0755 0 0' >> /etc/fstab

@@ -2,6 +2,7 @@
 
 import logging
 import math
+import subprocess
 import threading
 import time
 import uuid
@@ -95,6 +96,10 @@ class RunStore:
         self._lock = threading.Lock()
         self._max_pending, self._per_client = max_pending, per_client
 
+    def is_busy(self, client: str) -> bool:
+        with self._lock:
+            return sum(not r.done and r.client == client for r in self._runs.values()) >= self._per_client
+
     def get(self, run_id: str) -> Run | None:
         with self._lock:
             return self._runs.get(run_id)
@@ -117,7 +122,10 @@ class RunStore:
             work(run)
         except Exception as exc:  # noqa: BLE001 - every failure must reach the user as an event
             log.exception("run %s failed", run.id)
-            run.emit("error", {"message": str(exc)[:500] or type(exc).__name__})
+            # Host-side failures (mounts, copies) would expose server paths; keep their detail in the log.
+            hidden = isinstance(exc, OSError | subprocess.SubprocessError)
+            message = "The server could not prepare the sandbox. Please try again." if hidden else str(exc)[:500]
+            run.emit("error", {"message": message or type(exc).__name__})
         finally:
             run.finish()
 
